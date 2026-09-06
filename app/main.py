@@ -1,3 +1,5 @@
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -11,7 +13,14 @@ ALLOWED_ORIGINS = [
     "https://retailor.danpirante.dev",
 ]
 
-app = FastAPI()
+
+is_prod = os.getenv("ENV") == "production"
+
+app = FastAPI(
+    docs_url=None if is_prod else "/docs",
+    redoc_url=None if is_prod else "/redoc",
+    openapi_url=None if is_prod else "/openapi.json",
+)
 
 app.add_middleware(
     CORSMiddleware,
