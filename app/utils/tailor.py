@@ -1,5 +1,6 @@
 import json
 import os
+import re
 
 from app.schema import JDData, ResumeData
 
@@ -20,8 +21,48 @@ Rules:
 - Never change the name or contact fields.
 - Do not add fabrication. If the resume has gaps against the job's requirements,
   leave the content as-is rather than inventing.
+- The tailored resume must not exceed the original resume's total word count by
+  more than 10%.
+- Reframing bullets for JD relevance must be achieved through rewording and
+  reprioritizing existing content, not by adding new bullets or expanding
+  bullets with additional detail.
+- If a bullet becomes more detailed to match the JD, cut or shorten a
+  less-relevant bullet elsewhere to stay within the word budget.
+- Less relevant projects or experience for this specific JD should be condensed
+  to fewer bullets, not just reworded at the same length.
+- Keep the final resume concise enough for one page, targeting approximately
+  450-500 words maximum.
 - No markdown, no explanation, no comments.
 """
+
+
+CONDENSE_SYSTEM_PROMPT = """You are a professional resume editor.
+
+Condense the supplied tailored resume to fit one page, targeting approximately
+500 words maximum. Preserve all factual accuracy. Cut or merge the least
+job-relevant bullets first, then shorten verbose bullets. Do not invent, remove,
+or alter the candidate's name or contact information. Output ONLY valid JSON
+matching the resume's shape exactly. No markdown, explanation, or comments.
+"""
+
+
+def _word_count(value: object) -> int:
+    if isinstance(value, str):
+        return len(re.findall(r"\b[\w'-]+\b", value))
+    if isinstance(value, dict):
+        return sum(_word_count(item) for item in value.values())
+    if isinstance(value, list):
+        return sum(_word_count(item) for item in value)
+    return 0
+
+
+def _word_budget(resume: ResumeData) -> int:
+    original_words = _word_count(resume.model_dump())
+    return min(500, max(1, int(original_words * 1.10 + 0.9999)))
+
+
+def _without_contact(resume: ResumeData) -> dict:
+    return resume.model_copy(update={"contact": []}).model_dump()
 
 
 def tailor_resume(resume: dict, jd: dict) -> dict:
@@ -29,9 +70,17 @@ def tailor_resume(resume: dict, jd: dict) -> dict:
     validated_resume = ResumeData.model_validate(resume)
     validated_jd = JDData.model_validate(jd)
     contact = validated_resume.contact
+    word_budget = _word_budget(validated_resume)
     resume_for_llm = validated_resume.model_copy(update={"contact": []})
     payload = json.dumps(
-        {"resume": resume_for_llm.model_dump(), "job": validated_jd.model_dump()},
+        {
+            "resume": resume_for_llm.model_dump(),
+            "job": validated_jd.model_dump(),
+            "constraints": {
+                "original_word_count": _word_count(validated_resume.model_dump()),
+                "maximum_word_count": word_budget,
+            },
+        },
         indent=2,
     )
     msg = client.messages.create(
@@ -44,5 +93,40 @@ def tailor_resume(resume: dict, jd: dict) -> dict:
         if getattr(block, "type", "") == "text":
             result = ResumeData.model_validate_json(block.text)
             result.contact = contact
-            return result.model_dump()
+            if _word_count(result.model_dump()) <= word_budget:
+                return result.model_dump()
+
+            condensed_msg = client.messages.create(
+                model=os.getenv("TAILOR_MODEL"),
+                max_tokens=2000,
+                system=CONDENSE_SYSTEM_PROMPT,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": json.dumps(
+                            {
+                                "resume": _without_contact(result),
+                                "job": validated_jd.model_dump(),
+                                "constraints": {
+                                    "maximum_word_count": word_budget,
+                                    "instruction": (
+                                        "Condense this resume to fit 1 page (~500 words) "
+                                        "while preserving all factual accuracy — cut or "
+                                        "merge the least JD-relevant bullets first."
+                                    ),
+                                },
+                            },
+                            indent=2,
+                        ),
+                    }
+                ],
+            )
+            for condensed_block in condensed_msg.content:
+                if getattr(condensed_block, "type", "") == "text":
+                    condensed = ResumeData.model_validate_json(condensed_block.text)
+                    condensed.contact = contact
+                    if _word_count(condensed.model_dump()) <= word_budget:
+                        return condensed.model_dump()
+                    raise RuntimeError("model exceeded the resume word budget")
+            raise RuntimeError("condensation model returned no text block")
     raise RuntimeError("model returned no text block")
