@@ -1,11 +1,14 @@
 import json
+import logging
 import os
 
 from pydantic import BaseModel, ValidationError
 
 from app.schema import JD_TEMPLATE, RESUME_TEMPLATE, JDData, ResumeData
 
-from .llm import client
+from .llm import openai_client
+
+logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """You extract resume text into structured JSON.
 Output ONLY valid JSON matching this exact shape, values replaced with real data from the resume.
@@ -23,25 +26,33 @@ If a field is missing from the job description, use null or an empty list.
 
 
 def _text_content(msg) -> str:
-    for block in msg.content:
-        if getattr(block, "type", "") == "text":
-            return block.text
-    raise RuntimeError("model returned no text block")
+    if isinstance(msg, str):
+        logger.warning("Model response was a raw string (len=%d), not a ChatCompletion", len(msg))
+        return msg
+    try:
+        content = msg.choices[0].message.content
+    except (AttributeError, IndexError, TypeError):
+        logger.warning("Model response had unexpected shape; type=%s", type(msg).__name__)
+        raise RuntimeError("model returned no text block")
+    if not content:
+        raise RuntimeError("model returned no text block")
+    return content
+
+
+def _complete(system: str, messages: list[dict], max_tokens: int = 8000) -> str:
+    return _text_content(
+        openai_client.chat.completions.create(
+            model=os.getenv("PARSE_MODEL"),
+            max_tokens=max_tokens,
+            messages=[{"role": "system", "content": system}, *messages],
+        )
+    )
 
 
 def _parse_json(model: type[BaseModel], system: str, content: str) -> dict:
     messages = [{"role": "user", "content": content}]
     try:
-        return model.model_validate_json(
-            _text_content(
-                client.messages.create(
-                    model=os.getenv("PARSE_MODEL"),
-                    max_tokens=8000,
-                    system=system,
-                    messages=messages,
-                )
-            )
-        ).model_dump()
+        return model.model_validate_json(_complete(system, messages)).model_dump()
     except (ValidationError, ValueError):
         messages.append(
             {
@@ -54,16 +65,7 @@ def _parse_json(model: type[BaseModel], system: str, content: str) -> dict:
                 ),
             }
         )
-        return model.model_validate_json(
-            _text_content(
-                client.messages.create(
-                    model=os.getenv("PARSE_MODEL"),
-                    max_tokens=8000,
-                    system=system,
-                    messages=messages,
-                )
-            )
-        ).model_dump()
+        return model.model_validate_json(_complete(system, messages)).model_dump()
 
 
 def parse_resume(raw_text: str) -> dict:
