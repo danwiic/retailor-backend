@@ -1,9 +1,13 @@
+import logging
+
 from fastapi import APIRouter, File, Header, HTTPException, Request, UploadFile
 from starlette.concurrency import run_in_threadpool
 
 from app.utils.extract import extract_from_bytes
 from app.utils.parse import parse_resume
 from app.utils.rates import check_limit
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -43,4 +47,5 @@ async def parse_resume_file(
     try:
         return await run_in_threadpool(parse_resume, raw_text)
     except Exception:
+        logger.exception("Resume parsing failed")
         raise HTTPException(status_code=502, detail="parsing service temporarily unavailable")

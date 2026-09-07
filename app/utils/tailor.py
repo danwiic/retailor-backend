@@ -1,10 +1,13 @@
 import json
+import logging
 import os
 import re
 
 from app.schema import JDData, ResumeData
 
 from .llm import client
+
+logger = logging.getLogger(__name__)
 
 TAILOR_SYSTEM_PROMPT = """You are a professional resume writer.
 
@@ -147,5 +150,15 @@ def tailor_resume(resume: dict, jd: dict) -> dict:
                     if _fits_length_budget(condensed, word_budget):
                         return condensed.model_dump()
                     raise RuntimeError("model exceeded the resume word budget")
+            logger.warning(
+                "Condensation response had no text block; types=%s stop=%s",
+                [getattr(b, "type", "?") for b in condensed_msg.content],
+                getattr(condensed_msg, "stop_reason", "?"),
+            )
             raise RuntimeError("condensation model returned no text block")
+    logger.warning(
+        "Tailoring response had no text block; types=%s stop=%s",
+        [getattr(b, "type", "?") for b in msg.content],
+        getattr(msg, "stop_reason", "?"),
+    )
     raise RuntimeError("model returned no text block")
