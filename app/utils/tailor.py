@@ -30,6 +30,12 @@ Rules:
   less-relevant bullet elsewhere to stay within the word budget.
 - Less relevant projects or experience for this specific JD should be condensed
   to fewer bullets, not just reworded at the same length.
+- The summary is optional. Keep it to 2 lines maximum, approximately 35 words or
+  fewer. It must do work the bullets cannot: state the candidate's years of
+  experience and the specific JD-relevant framing in one concise line, with
+  nothing else. If the resume does not support a concise, accurate summary with
+  both elements, set summary to null and let the reordered/reframed bullets
+  speak for themselves.
 - Keep the final resume concise enough for one page, targeting approximately
   450-500 words maximum.
 - No markdown, no explanation, no comments.
@@ -43,6 +49,11 @@ Condense the supplied tailored resume to fit one page, targeting approximately
 job-relevant bullets first, then shorten verbose bullets. Do not invent, remove,
 or alter the candidate's name or contact information. Output ONLY valid JSON
 matching the resume's shape exactly. No markdown, explanation, or comments.
+
+The summary is optional and must be no more than approximately 35 words (about
+2 lines). Keep it only if it accurately states the candidate's years of
+experience and JD-relevant framing in one concise line. Otherwise set summary
+to null.
 """
 
 
@@ -59,6 +70,11 @@ def _word_count(value: object) -> int:
 def _word_budget(resume: ResumeData) -> int:
     original_words = _word_count(resume.model_dump())
     return min(500, max(1, int(original_words * 1.10 + 0.9999)))
+
+
+def _fits_length_budget(resume: ResumeData, word_budget: int) -> bool:
+    summary_words = _word_count(resume.summary) if resume.summary else 0
+    return _word_count(resume.model_dump()) <= word_budget and summary_words <= 35
 
 
 def _without_contact(resume: ResumeData) -> dict:
@@ -93,7 +109,7 @@ def tailor_resume(resume: dict, jd: dict) -> dict:
         if getattr(block, "type", "") == "text":
             result = ResumeData.model_validate_json(block.text)
             result.contact = contact
-            if _word_count(result.model_dump()) <= word_budget:
+            if _fits_length_budget(result, word_budget):
                 return result.model_dump()
 
             condensed_msg = client.messages.create(
@@ -112,7 +128,10 @@ def tailor_resume(resume: dict, jd: dict) -> dict:
                                     "instruction": (
                                         "Condense this resume to fit 1 page (~500 words) "
                                         "while preserving all factual accuracy — cut or "
-                                        "merge the least JD-relevant bullets first."
+                                        "merge the least JD-relevant bullets first. Keep "
+                                        "the summary to approximately 35 words or fewer, "
+                                        "or set it to null if it cannot state years of "
+                                        "experience and JD-relevant framing compactly."
                                     ),
                                 },
                             },
@@ -125,7 +144,7 @@ def tailor_resume(resume: dict, jd: dict) -> dict:
                 if getattr(condensed_block, "type", "") == "text":
                     condensed = ResumeData.model_validate_json(condensed_block.text)
                     condensed.contact = contact
-                    if _word_count(condensed.model_dump()) <= word_budget:
+                    if _fits_length_budget(condensed, word_budget):
                         return condensed.model_dump()
                     raise RuntimeError("model exceeded the resume word budget")
             raise RuntimeError("condensation model returned no text block")
