@@ -1,3 +1,8 @@
+from typing import Annotated
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
 RESUME_TEMPLATE = {
     "name": "DAN RANIEL PIRANTE",
     "contact": [
@@ -48,3 +53,48 @@ JD_TEMPLATE = {
         "Collaborate with cross-functional teams",
     ],
 }
+
+
+class ContactItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    label: str = Field(max_length=40)
+    value: str = Field(max_length=300)
+
+
+class ResumeEntry(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    title: str | None = Field(default=None, max_length=200)
+    name: str | None = Field(default=None, max_length=200)
+    company: str | None = Field(default=None, max_length=200)
+    dates: str | None = Field(default=None, max_length=100)
+    bullets: list[Annotated[str, Field(max_length=1000)]] = Field(default_factory=list, max_length=30)
+
+
+class EducationEntry(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    school: str = Field(default="", max_length=250)
+    degree: str = Field(default="", max_length=250)
+    dates: str = Field(default="", max_length=100)
+    location: str | None = Field(default=None, max_length=200)
+
+
+class ResumeData(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(default="", max_length=200)
+    contact: list[ContactItem] = Field(default_factory=list, max_length=20)
+    summary: str | None = Field(default=None, max_length=4000)
+    skills: list[Annotated[str, Field(max_length=100)]] = Field(default_factory=list, max_length=100)
+    experience: list[ResumeEntry] = Field(default_factory=list, max_length=30)
+    projects: list[ResumeEntry] = Field(default_factory=list, max_length=30)
+    education: list[EducationEntry] = Field(default_factory=list, max_length=20)
+
+
+class JDData(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    title: str | None = Field(default=None, max_length=300)
+    company: str | None = Field(default=None, max_length=300)
+    location: str | None = Field(default=None, max_length=200)
+    employment_type: str | None = Field(default=None, max_length=100)
+    requirements: list[Annotated[str, Field(max_length=1000)]] = Field(default_factory=list, max_length=100)
+    nice_to_have: list[Annotated[str, Field(max_length=1000)]] = Field(default_factory=list, max_length=100)
+    responsibilities: list[Annotated[str, Field(max_length=1000)]] = Field(default_factory=list, max_length=100)

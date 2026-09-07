@@ -1,7 +1,6 @@
-import json
 import os
 
-from app.schema import JD_TEMPLATE, RESUME_TEMPLATE
+from app.schema import JDData, JD_TEMPLATE, RESUME_TEMPLATE, ResumeData
 
 from .llm import client
 
@@ -29,7 +28,7 @@ def parse_resume(raw_text: str) -> dict:
     )
     for block in msg.content:
         if getattr(block, "type", "") == "text":
-            return json.loads(block.text)
+            return ResumeData.model_validate_json(block.text).model_dump()
     raise RuntimeError("model returned no text block")
 
 
@@ -42,5 +41,5 @@ def parse_jd(raw_text: str) -> dict:
     )
     for block in msg.content:
         if getattr(block, "type", "") == "text":
-            return json.loads(block.text)
+            return JDData.model_validate_json(block.text).model_dump()
     raise RuntimeError("model returned no text block")
