@@ -75,7 +75,7 @@ analysis, and tailoring.
 |--------|---------------|---------------------------------------------|--------------------------------------|
 | POST   | `/parse`      | multipart file (PDF/DOCX, ≤5MB)             | parsed resume JSON                   |
 | POST   | `/analyze-jd` | `{"text": "<job posting>"}`                 | parsed JD requirements JSON          |
-| POST   | `/tailor`     | `{"resume": {...}, "jd": {...}}`            | `{"tailored_resume": {...}, "download_url": "..."}` |
+| POST   | `/tailor`     | `{"resume": {...}, "jd": {...}, "export_format": "docx"}` | `{"tailored_resume": {...}, "download_url": "...", "download_format": "docx"}` |
 
 ## Project layout
 
