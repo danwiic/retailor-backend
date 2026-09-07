@@ -1,6 +1,7 @@
+import json
 import os
 
-from app.schema import JDData, JD_TEMPLATE, RESUME_TEMPLATE, ResumeData
+from app.schema import JD_TEMPLATE, RESUME_TEMPLATE, JDData, ResumeData
 
 from .llm import client
 
