@@ -6,7 +6,7 @@ from pydantic import BaseModel, ValidationError
 
 from app.schema import JD_TEMPLATE, RESUME_TEMPLATE, JDData, ResumeData
 
-from .llm import openai_client
+from .llm import client
 
 logger = logging.getLogger(__name__)
 
@@ -27,24 +27,30 @@ If a field is missing from the job description, use null or an empty list.
 
 def _text_content(msg) -> str:
     if isinstance(msg, str):
-        logger.warning("Model response was a raw string (len=%d), not a ChatCompletion", len(msg))
-        return msg
-    try:
-        content = msg.choices[0].message.content
-    except (AttributeError, IndexError, TypeError):
-        logger.warning("Model response had unexpected shape; type=%s", type(msg).__name__)
-        raise RuntimeError("model returned no text block")
-    if not content:
-        raise RuntimeError("model returned no text block")
-    return content
+        logger.warning(
+            "Model response was a raw string (len=%d, starts=%r), not a Message object",
+            len(msg),
+            msg[:60].replace("\n", " "),
+        )
+        raise RuntimeError("model returned a non-JSON response")
+    for block in msg.content:
+        if getattr(block, "type", "") == "text":
+            return block.text
+    logger.warning(
+        "Model response had no text block; types=%s stop=%s",
+        [getattr(b, "type", "?") for b in msg.content],
+        getattr(msg, "stop_reason", "?"),
+    )
+    raise RuntimeError("model returned no text block")
 
 
 def _complete(system: str, messages: list[dict], max_tokens: int = 8000) -> str:
     return _text_content(
-        openai_client.chat.completions.create(
+        client.messages.create(
             model=os.getenv("PARSE_MODEL"),
             max_tokens=max_tokens,
-            messages=[{"role": "system", "content": system}, *messages],
+            system=system,
+            messages=messages,
         )
     )
 
