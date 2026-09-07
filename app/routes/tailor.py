@@ -1,11 +1,19 @@
 import uuid
+from typing import Literal
 
 from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, ConfigDict
 from starlette.concurrency import run_in_threadpool
 
 from app.schema import JDData, ResumeData
-from app.utils.export import build_docx, export_key, upload_export_and_sign
+from app.utils.export import (
+    EXPORT_MIME,
+    PDF_MIME,
+    build_docx,
+    build_pdf,
+    export_key,
+    upload_export_and_sign,
+)
 from app.utils.rates import check_tailor_limit
 from app.utils.tailor import tailor_resume
 
@@ -18,6 +26,7 @@ class TailorRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     resume: ResumeData
     jd: JDData
+    export_format: Literal["docx", "pdf"] = "docx"
 
 
 @router.post("/tailor")
@@ -52,11 +61,23 @@ async def tailor(
         raise HTTPException(status_code=502, detail="tailoring service temporarily unavailable")
 
     try:
-        docx_bytes = await run_in_threadpool(build_docx, tailored)
+        if payload.export_format == "pdf":
+            export_bytes = await run_in_threadpool(build_pdf, tailored)
+            content_type = PDF_MIME
+        else:
+            export_bytes = await run_in_threadpool(build_docx, tailored)
+            content_type = EXPORT_MIME
         url = await run_in_threadpool(
-            upload_export_and_sign, docx_bytes, export_key(job_id)
+            upload_export_and_sign,
+            export_bytes,
+            export_key(job_id, payload.export_format),
+            content_type,
         )
     except Exception:
         raise HTTPException(status_code=502, detail="export service temporarily unavailable")
 
-    return {"tailored_resume": tailored, "download_url": url}
+    return {
+        "tailored_resume": tailored,
+        "download_url": url,
+        "download_format": payload.export_format,
+    }
