@@ -6,7 +6,7 @@ from pydantic import BaseModel, ValidationError
 
 from app.schema import JD_TEMPLATE, RESUME_TEMPLATE, JDData, ResumeData
 
-from .llm import client
+from .llm import bedrock, extract_text
 
 logger = logging.getLogger(__name__)
 
@@ -24,53 +24,33 @@ No markdown, no explanation, no comments.
 If a field is missing from the job description, use null or an empty list.
 """
 
+REPAIR_PROMPT = (
+    "Your previous response was cut off or was not complete valid JSON. "
+    "Output the complete JSON now. Match the template exactly. Do not "
+    "stop before the final closing brace. You may condense verbose "
+    "values, but keep every section and never truncate mid-field."
+)
 
-def _text_content(msg) -> str:
-    if isinstance(msg, str):
-        logger.warning(
-            "Model response was a raw string (len=%d, starts=%r), not a Message object",
-            len(msg),
-            msg[:60].replace("\n", " "),
-        )
-        raise RuntimeError("model returned a non-JSON response")
-    for block in msg.content:
-        if getattr(block, "type", "") == "text":
-            return block.text
-    logger.warning(
-        "Model response had no text block; types=%s stop=%s",
-        [getattr(b, "type", "?") for b in msg.content],
-        getattr(msg, "stop_reason", "?"),
+
+def _complete(system: str, messages: list[dict], max_tokens: int = 4096) -> str:
+    response = bedrock.converse(
+        modelId=os.getenv("PARSE_MODEL"),
+        messages=messages,
+        system=[{"text": system}],
+        inferenceConfig={"maxTokens": max_tokens},
     )
-    raise RuntimeError("model returned no text block")
-
-
-def _complete(system: str, messages: list[dict], max_tokens: int = 8000) -> str:
-    return _text_content(
-        client.messages.create(
-            model=os.getenv("PARSE_MODEL"),
-            max_tokens=max_tokens,
-            system=system,
-            messages=messages,
-        )
-    )
+    return extract_text(response)
 
 
 def _parse_json(model: type[BaseModel], system: str, content: str) -> dict:
-    messages = [{"role": "user", "content": content}]
+    messages = [{"role": "user", "content": [{"text": content}]}]
+    text = _complete(system, messages)
     try:
-        return model.model_validate_json(_complete(system, messages)).model_dump()
+        return model.model_validate_json(text).model_dump()
     except (ValidationError, ValueError):
-        messages.append(
-            {
-                "role": "user",
-                "content": (
-                    "Your previous response was cut off or was not complete valid JSON. "
-                    "Output the complete JSON now. Match the template exactly. Do not "
-                    "stop before the final closing brace. You may condense verbose "
-                    "values, but keep every section and never truncate mid-field."
-                ),
-            }
-        )
+        logger.warning("Parse model returned invalid JSON; requesting a repair pass")
+        messages.append({"role": "assistant", "content": [{"text": text}]})
+        messages.append({"role": "user", "content": [{"text": REPAIR_PROMPT}]})
         return model.model_validate_json(_complete(system, messages)).model_dump()
 
 
