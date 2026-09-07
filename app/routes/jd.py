@@ -6,6 +6,10 @@ from app.utils.guardrails import sanitize_jd, wrap_jd_as_data
 from app.utils.parse import parse_jd
 from app.utils.rates import check_limit
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
 
 
@@ -33,4 +37,5 @@ async def analyze_jd(payload: JDPayload, request: Request, x_device_id: str = He
     try:
         return await run_in_threadpool(parse_jd, wrapped)
     except Exception:
+        logger.exception("JD parsing failed")
         raise HTTPException(status_code=502, detail="JD parsing service temporarily unavailable")

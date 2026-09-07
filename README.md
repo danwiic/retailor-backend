@@ -39,6 +39,7 @@ Copy to `.env`:
 
 ```env
 AGENT_ROUTER_API_KEY=...
+# Do not append /v1 — the Anthropic SDK adds it automatically.
 AGENT_ROUTER_URL=https://agentrouter.org
 APP_ENV=development
 DATABASE_URL=postgresql://user:password@host/database?sslmode=require

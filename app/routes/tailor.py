@@ -1,4 +1,5 @@
 import uuid
+import logging
 from typing import Literal
 
 from fastapi import APIRouter, Header, HTTPException, Request
@@ -16,6 +17,8 @@ from app.utils.export import (
 )
 from app.utils.rates import check_tailor_limit
 from app.utils.tailor import tailor_resume
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -58,6 +61,7 @@ async def tailor(
             tailor_resume, payload.resume.model_dump(), payload.jd.model_dump()
         )
     except Exception:
+        logger.exception("Tailoring failed")
         raise HTTPException(status_code=502, detail="tailoring service temporarily unavailable")
 
     try:
@@ -74,6 +78,7 @@ async def tailor(
             content_type,
         )
     except Exception:
+        logger.exception("Export failed")
         raise HTTPException(status_code=502, detail="export service temporarily unavailable")
 
     return {
