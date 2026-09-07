@@ -1,7 +1,7 @@
 import json
 import os
 
-from app.schema import RESUME_TEMPLATE
+from app.schema import JDData, ResumeData
 
 from .llm import client
 
@@ -26,18 +26,23 @@ Rules:
 
 def tailor_resume(resume: dict, jd: dict) -> dict:
     # Strip PII (contact block) before sending to the LLM; reattach unchanged after.
-    contact = resume.pop("contact", None)
-    payload = json.dumps({"resume": resume, "job": jd}, indent=2)
+    validated_resume = ResumeData.model_validate(resume)
+    validated_jd = JDData.model_validate(jd)
+    contact = validated_resume.contact
+    resume_for_llm = validated_resume.model_copy(update={"contact": []})
+    payload = json.dumps(
+        {"resume": resume_for_llm.model_dump(), "job": validated_jd.model_dump()},
+        indent=2,
+    )
     msg = client.messages.create(
         model=os.getenv("TAILOR_MODEL"),
         max_tokens=2000,
         system=TAILOR_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": payload}],
     )
-    resume["contact"] = contact
     for block in msg.content:
         if getattr(block, "type", "") == "text":
-            result = json.loads(block.text)
-            result["contact"] = contact
-            return result
+            result = ResumeData.model_validate_json(block.text)
+            result.contact = contact
+            return result.model_dump()
     raise RuntimeError("model returned no text block")

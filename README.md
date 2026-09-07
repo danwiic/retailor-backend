@@ -40,8 +40,13 @@ Copy to `.env`:
 ```env
 AGENT_ROUTER_API_KEY=...
 AGENT_ROUTER_URL=https://agentrouter.org
+APP_ENV=development
+DATABASE_URL=postgresql://user:password@host/database?sslmode=require
 PARSE_MODEL=deepseek-v4-flash
 TAILOR_MODEL=claude-opus-5
+PARSE_DAILY_LIMIT=5
+JD_DAILY_LIMIT=5
+TAILOR_DAILY_LIMIT=3
 # Export (S3) — omit locally to test the pipeline without it
 S3_BUCKET=resume-tailor-exports
 AWS_ACCESS_KEY_ID=...
@@ -57,6 +62,12 @@ py -m uvicorn app.main:app --reload --port 8000
 ```
 
 Interactive docs at `http://localhost:8000/docs`.
+
+In Neon, run `migrations/001_rate_limit_counters.sql` once before setting
+`APP_ENV=production`. Production requires `DATABASE_URL` and a valid
+`x-device-id` header on all LLM-backed endpoints. The rate-limit key is the
+client IP plus device ID, with separate daily counters for parsing, JD
+analysis, and tailoring.
 
 ## Endpoints
 
@@ -91,4 +102,5 @@ app/
 - JD input is sanitized (control chars, length cap) and wrapped in markers so it is treated as *data*, never as instructions.
 - Contact/PII is stripped before the resume is sent to the tailoring LLM and reattached unchanged.
 - S3 bucket is private; downloads use short-lived pre-signed URLs.
-- Tailoring is the rate-limited, abuse-controlled step (planned: 3/day per IP + device ID).
+- LLM-backed endpoints are rate-limited per IP + device ID and action, with
+  counters stored atomically in Postgres.

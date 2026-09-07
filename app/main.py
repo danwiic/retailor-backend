@@ -14,7 +14,7 @@ ALLOWED_ORIGINS = [
 ]
 
 
-is_prod = os.getenv("ENV") == "production"
+is_prod = os.getenv("APP_ENV", "development") == "production"
 
 app = FastAPI(
     docs_url=None if is_prod else "/docs",
@@ -33,3 +33,8 @@ app.add_middleware(
 app.include_router(upload_router)
 app.include_router(jd_router)
 app.include_router(tailor_router)
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}

@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 
 import boto3
 from docx import Document
+from botocore.config import Config
 
 BUCKET = os.getenv("S3_BUCKET", "resume-tailor-exports")
 
@@ -70,6 +71,7 @@ def _s3_client():
         region_name=os.getenv("AWS_REGION", "us-east-1"),
         aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
         aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
+        config=Config(connect_timeout=10, read_timeout=30, retries={"max_attempts": 2}),
     )
 
 
