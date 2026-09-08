@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict
 from starlette.concurrency import run_in_threadpool
 
 from app.schema import JDData, ResumeData
+from app.utils.llm import LLMRateLimitError
 from app.utils.export import (
     EXPORT_MIME,
     PDF_MIME,
@@ -60,6 +61,8 @@ async def tailor(
         tailored = await run_in_threadpool(
             tailor_resume, payload.resume.model_dump(), payload.jd.model_dump()
         )
+    except LLMRateLimitError:
+        raise HTTPException(status_code=429, detail="tailoring provider quota or rate limit reached")
     except Exception:
         logger.exception("Tailoring failed")
         raise HTTPException(status_code=502, detail="tailoring service temporarily unavailable")

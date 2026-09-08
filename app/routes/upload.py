@@ -4,6 +4,7 @@ from fastapi import APIRouter, File, Header, HTTPException, Request, UploadFile
 from starlette.concurrency import run_in_threadpool
 
 from app.utils.extract import extract_from_bytes
+from app.utils.llm import LLMRateLimitError
 from app.utils.parse import parse_resume
 from app.utils.rates import check_limit
 
@@ -46,6 +47,8 @@ async def parse_resume_file(
         raise HTTPException(status_code=429, detail="daily parse limit reached")
     try:
         return await run_in_threadpool(parse_resume, raw_text)
+    except LLMRateLimitError:
+        raise HTTPException(status_code=429, detail="parsing provider quota or rate limit reached")
     except Exception:
         logger.exception("Resume parsing failed")
         raise HTTPException(status_code=502, detail="parsing service temporarily unavailable")

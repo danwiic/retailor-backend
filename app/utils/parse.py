@@ -6,7 +6,7 @@ from pydantic import BaseModel, ValidationError
 
 from app.schema import JD_TEMPLATE, RESUME_TEMPLATE, JDData, ResumeData
 
-from .llm import bedrock, extract_text
+from .llm import complete_chat
 
 logger = logging.getLogger(__name__)
 
@@ -33,24 +33,18 @@ REPAIR_PROMPT = (
 
 
 def _complete(system: str, messages: list[dict], max_tokens: int = 4096) -> str:
-    response = bedrock.converse(
-        modelId=os.getenv("PARSE_MODEL"),
-        messages=messages,
-        system=[{"text": system}],
-        inferenceConfig={"maxTokens": max_tokens},
-    )
-    return extract_text(response)
+    return complete_chat(system, messages, os.getenv("PARSE_MODEL", ""), max_tokens)
 
 
 def _parse_json(model: type[BaseModel], system: str, content: str) -> dict:
-    messages = [{"role": "user", "content": [{"text": content}]}]
+    messages = [{"role": "user", "content": content}]
     text = _complete(system, messages)
     try:
         return model.model_validate_json(text).model_dump()
     except (ValidationError, ValueError):
         logger.warning("Parse model returned invalid JSON; requesting a repair pass")
-        messages.append({"role": "assistant", "content": [{"text": text}]})
-        messages.append({"role": "user", "content": [{"text": REPAIR_PROMPT}]})
+        messages.append({"role": "assistant", "content": text})
+        messages.append({"role": "user", "content": REPAIR_PROMPT})
         return model.model_validate_json(_complete(system, messages)).model_dump()
 
 

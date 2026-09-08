@@ -5,22 +5,28 @@ import re
 
 from app.schema import JDData, ResumeData
 
-from .llm import bedrock, extract_text
+from .llm import complete_chat
 
 logger = logging.getLogger(__name__)
 
 TAILOR_SYSTEM_PROMPT = """You are a professional resume writer.
 
-You receive:
-1. A candidate's resume as JSON
-2. A job description's parsed requirements as JSON
+You receive a single JSON object with three top-level keys:
+- "resume": the candidate's resume
+- "job": parsed job requirements
+- "constraints": word limits to respect
 
 Rewrite the resume so it is tailored to the job. Keep it truthful — do not invent
 experience, skills, or credentials the resume does not support. You may rephrase,
 reemphasize, and reorder to highlight the most relevant points for this job.
 
 Rules:
-- Output ONLY valid JSON matching the resume's shape exactly.
+- Output ONLY the tailored resume as a JSON object, matching the shape of the
+  input "resume" object exactly, at the TOP LEVEL of your response. Do NOT wrap
+  it in a "resume" key or any other container object. Your entire response must
+  be directly parseable as the resume object itself — nothing else.
+  Correct example shape: {"name": "...", "experience": [...], ...}
+  Incorrect example shape (never do this): {"resume": {"name": "...", ...}}
 - Never change the name or contact fields.
 - Do not add fabrication. If the resume has gaps against the job's requirements,
   leave the content as-is rather than inventing.
@@ -47,11 +53,23 @@ Rules:
 
 CONDENSE_SYSTEM_PROMPT = """You are a professional resume editor.
 
+You receive a single JSON object with keys "resume" (the tailored resume to
+condense), "job" (parsed job requirements), and "constraints" (word limits and
+instructions).
+
 Condense the supplied tailored resume to fit one page, targeting approximately
 500 words maximum. Preserve all factual accuracy. Cut or merge the least
 job-relevant bullets first, then shorten verbose bullets. Do not invent, remove,
-or alter the candidate's name or contact information. Output ONLY valid JSON
-matching the resume's shape exactly. No markdown, explanation, or comments.
+or alter the candidate's name or contact information.
+
+Output ONLY the condensed resume as a JSON object, matching the shape of the
+input "resume" object exactly, at the TOP LEVEL of your response. Do NOT wrap
+it in a "resume" key or any other container object. Your entire response must
+be directly parseable as the resume object itself — nothing else.
+Correct example shape: {"name": "...", "experience": [...], ...}
+Incorrect example shape (never do this): {"resume": {"name": "...", ...}}
+
+No markdown, explanation, or comments.
 
 The summary is optional and must be no more than approximately 35 words (about
 2 lines). Keep it only if it accurately states the candidate's years of
@@ -61,13 +79,22 @@ to null.
 
 
 def _complete(system: str, payload: str, max_tokens: int = 4096) -> str:
-    response = bedrock.converse(
-        modelId=os.getenv("TAILOR_MODEL"),
-        messages=[{"role": "user", "content": [{"text": payload}]}],
-        system=[{"text": system}],
-        inferenceConfig={"maxTokens": max_tokens},
+    return complete_chat(
+        system,
+        [{"role": "user", "content": payload}],
+        os.getenv("TAILOR_MODEL", ""),
+        max_tokens,
     )
-    return extract_text(response)
+
+
+def _unwrap_resume_json(raw: str) -> dict:
+    """Defensive unwrap: the model sometimes echoes the input's "resume"
+    wrapper key even when instructed to return the resume at the top level.
+    """
+    data = json.loads(raw)
+    if isinstance(data, dict) and set(data.keys()) == {"resume"}:
+        data = data["resume"]
+    return data
 
 
 def _word_count(value: object) -> int:
@@ -113,7 +140,8 @@ def tailor_resume(resume: dict, jd: dict) -> dict:
         indent=2,
     )
 
-    result = ResumeData.model_validate_json(_complete(TAILOR_SYSTEM_PROMPT, payload))
+    raw = _complete(TAILOR_SYSTEM_PROMPT, payload)
+    result = ResumeData.model_validate(_unwrap_resume_json(raw))
     result.contact = contact
     if _fits_length_budget(result, word_budget):
         return result.model_dump()
@@ -136,9 +164,8 @@ def tailor_resume(resume: dict, jd: dict) -> dict:
         },
         indent=2,
     )
-    condensed = ResumeData.model_validate_json(
-        _complete(CONDENSE_SYSTEM_PROMPT, condensed_payload)
-    )
+    condensed_raw = _complete(CONDENSE_SYSTEM_PROMPT, condensed_payload)
+    condensed = ResumeData.model_validate(_unwrap_resume_json(condensed_raw))
     condensed.contact = contact
     if _fits_length_budget(condensed, word_budget):
         return condensed.model_dump()

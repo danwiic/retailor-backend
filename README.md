@@ -15,15 +15,15 @@ JD paste ──> sanitize (guardrail) ──> LLM parse to requirements ──�
 ```
 
 Two LLM steps, deliberately split:
-- **Parse** (default `deepseek-v4-flash`): resume text → structured JSON, JD → requirements. Cheap, fast, can be revisited.
-- **Tailor** (default `claude-opus-5`): rewrite the resume against the JD requirements. This is the expensive, rate-limited step.
+- **Parse** (default `gpt-5-mini-deployment`): resume text → structured JSON, JD → requirements. Cheap, fast, can be revisited.
+- **Tailor** (default `gpt-5-mini-deployment`): rewrite the resume against the JD requirements. This is the expensive, rate-limited step.
 
 ## Stack
 
 - FastAPI backend (Python 3.14)
 - Neon (Postgres) for structured data — *planned*
 - S3 for generated export files only (private bucket, pre-signed URLs) — *needs config*
-- LLM via AgentRouter gateway (Anthropic-compatible API)
+- LLM via Azure AI Foundry OpenAI-compatible API
 
 ## Setup
 
@@ -38,13 +38,14 @@ pip install -r requirements.txt
 Copy to `.env`:
 
 ```env
-AGENT_ROUTER_API_KEY=...
-# Do not append /v1 — the Anthropic SDK adds it automatically.
-AGENT_ROUTER_URL=https://agentrouter.org
+AZURE_OPENAI_API_KEY=...
+AZURE_OPENAI_ENDPOINT=https://my-foundry-resource-dan01.openai.azure.com
+AZURE_OPENAI_API_VERSION=2024-10-21
 APP_ENV=development
 DATABASE_URL=postgresql://user:password@host/database?sslmode=require
-PARSE_MODEL=deepseek-v4-flash
-TAILOR_MODEL=claude-opus-5
+# These are Azure deployment names, not base model names.
+PARSE_MODEL=gpt-5-mini-deployment
+TAILOR_MODEL=gpt-5-mini-deployment
 PARSE_DAILY_LIMIT=5
 JD_DAILY_LIMIT=5
 TAILOR_DAILY_LIMIT=3
@@ -89,7 +90,7 @@ app/
     parse.py           # resume/JD → JSON via LLM
     tailor.py          # resume + JD → tailored resume via LLM
     guardrails.py      # sanitize_jd / wrap_jd_as_data (prompt-injection defense)
-    llm.py             # shared Anthropic client
+  llm.py             # shared Azure OpenAI client
     export.py          # build_docx, upload to S3, pre-signed URL
   routes/
     upload.py          # POST /parse
