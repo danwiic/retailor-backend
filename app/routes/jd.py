@@ -3,6 +3,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
 
 from app.utils.guardrails import sanitize_jd, wrap_jd_as_data
+from app.utils.llm import LLMRateLimitError
 from app.utils.parse import parse_jd
 from app.utils.rates import check_limit
 
@@ -36,6 +37,8 @@ async def analyze_jd(payload: JDPayload, request: Request, x_device_id: str = He
         raise HTTPException(status_code=429, detail="daily JD analysis limit reached")
     try:
         return await run_in_threadpool(parse_jd, wrapped)
+    except LLMRateLimitError:
+        raise HTTPException(status_code=429, detail="JD analysis provider quota or rate limit reached")
     except Exception:
         logger.exception("JD parsing failed")
         raise HTTPException(status_code=502, detail="JD parsing service temporarily unavailable")
